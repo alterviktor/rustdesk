@@ -202,7 +202,15 @@ jobs:
           } catch {
               Write-Host "Ingore the printer driver error."
           }
-
+          Write-Host "Ingore the printer driver error."
+          }
+        
+      - name: Upload Windows Executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: Moje-Vlastni-Podpora-Windows
+          path: rustdesk/rustdesk.exe
+      
       - name: find Runner.res
         # Windows: find Runner.res (compiled from ./flutter/windows/runner/Runner.rc), copy to ./Runner.res
         # Runner.rc does not contain actual version, but Runner.res does
