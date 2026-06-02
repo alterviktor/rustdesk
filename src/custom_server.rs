@@ -21,10 +21,10 @@ pub struct CustomServer {
 fn get_custom_server_from_config_string(_s: &str) -> ResultType<CustomServer> {
     // Vždy vrátíme natvrdo definovaný server, ignorujeme vstup
     Ok(CustomServer {
-        host: "vaseserver.cz".to_owned(),      // ZDE NAPIŠTE SVOU DOMÉNU / IP SYNOLOGY
-        key: "".to_owned(),             // ZDE VLOŽTE OBSAH VAŠEHO .pub KLÍČE
+        host: "podpora.moravec.eu".to_owned(),      // ZDE NAPIŠTE SVOU DOMÉNU / IP SYNOLOGY
+        key: "POIclmEVbykh6szaJV9RqsAj1ueA+OJxvWrc4KF1Wtc=".to_owned(),             // ZDE VLOŽTE OBSAH VAŠEHO .pub KLÍČE
         api: "".to_owned(),
-        relay: "".to_owned(),
+        relay: "podpora.moravec.eu".to_owned(),
     })
 }
 
@@ -35,7 +35,7 @@ pub fn get_custom_server_from_string(_s: &str) -> ResultType<CustomServer> {
         host: "podpora.moravec.eu".to_owned(),      // ZDE NAPIŠTE SVOU DOMÉNU / IP SYNOLOGY
         key: "POIclmEVbykh6szaJV9RqsAj1ueA+OJxvWrc4KF1Wtc=".to_owned(),             // ZDE VLOŽTE OBSAH VAŠEHO .pub KLÍČE
         api: "".to_owned(),
-        relay: "".to_owned(),
+        relay: "podpora.moravec.eu".to_owned(),
     })
 }
 
