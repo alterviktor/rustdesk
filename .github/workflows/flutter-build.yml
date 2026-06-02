@@ -202,9 +202,7 @@ jobs:
           } catch {
               Write-Host "Ingore the printer driver error."
           }
-          Write-Host "Ingore the printer driver error."
-          }
-        
+                
       - name: Upload Windows Executable
         uses: actions/upload-artifact@v4
         with:
