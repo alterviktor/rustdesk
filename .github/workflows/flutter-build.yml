@@ -181,14 +181,21 @@ jobs:
           fi
         shell: pwsh
 
-      - name: Build rustdesk
+      - name: Build rustdesk (Windows)
+        if: matrix.job.os == 'windows-2022'
         run: |
-          if [ "${{ matrix.job.os }}" = "windows-2022" ]; then
-            python3 ./build.py --portable --hwcodec --flutter --vram --skip-portable-pack
+          python3 ./build.py --portable --hwcodec --flutter --vram --skip-portable-pack
+          if (Test-Path ./flutter/build/windows/x64/runner/Release) {
             mv ./flutter/build/windows/x64/runner/Release ./rustdesk
-          else
-            python3 ./build.py --flutter
-          fi
+          } elseif (Test-Path ./flutter/build/windows/runner/Release) {
+            mv ./flutter/build/windows/runner/Release ./rustdesk
+          }
+        shell: pwsh
+
+      - name: Build rustdesk (Non-Windows)
+        if: matrix.job.os != 'windows-2022'
+        run: |
+          python3 ./build.py --flutter
         shell: bash
 
       - name: Vynucene ulozeni Windows exe souboru
