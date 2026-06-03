@@ -94,17 +94,17 @@ jobs:
             aarch64-unknown-linux-gnu) sudo apt-get -y update ; sudo apt-get -y install gcc-aarch64-linux-gnu ;;
           esac
 
-      - name: Restore bridge files (Universal via GitHub Artifacts)
-        uses: dawidd6/action-download-artifact@v6
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          workflow: build-flutter-rust-bridge.yml
-          name: bridge-artifact
-          path: flutter/src/generated
-          repo: rustdesk/rustdesk
-          branch: master
-          search_artifacts: true
-          if_no_artifact_found: warn
+      - name: Restore bridge files (Universal via Curl)
+        shell: bash
+        run: |
+          if [ -d "flutter/src/generated" ]; then
+            echo "Bridge files already exist"
+          else
+            echo "Downloading bridge files using curl..."
+            curl -L -o bridge.tgz https://github.com/rustdesk/rustdesk/releases/download/nightly/bridge.tgz
+            tar -xzf bridge.tgz
+            rm bridge.tgz
+          fi
 
       - name: Install LLVM and Clang
         if: matrix.job.os == 'windows-2022'
@@ -141,7 +141,7 @@ jobs:
               ;;
             x86_64-unknown-linux-gnu)
               cd flutter
-              wget -q https://github.com/rustdesk/rustdesk-ext/releases/download/engine/linux-flutter-engine-3.22.3.zip
+              curl -L -o linux-flutter-engine-3.22.3.zip https://github.com/rustdesk/rustdesk-ext/releases/download/engine/linux-flutter-engine-3.22.3.zip
               unzip -o linux-flutter-engine-3.22.3.zip -d bin
               rm linux-flutter-engine-3.22.3.zip
               ;;
@@ -177,7 +177,7 @@ jobs:
           if [ "${{ matrix.job.os }}" = "windows-2022" ]; then
             $env:VCPKG_ROOT/vcpkg install --x-install-root="$env:VCPKG_ROOT/installed" --triplet x64-windows
           else
-            $VVCPKG_ROOT/vcpkg install --x-install-root="$VCPKG_ROOT/installed"
+            $VCPKG_ROOT/vcpkg install --x-install-root="$VCPKG_ROOT/installed"
           fi
         shell: pwsh
 
@@ -201,7 +201,7 @@ jobs:
       - name: Download usbmmidd_v2.zip and extract it to ./rustdesk
         if: matrix.job.os == 'windows-2022'
         run: |
-          Invoke-WebRequest -Uri https://github.com/rustdesk/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip -OutFile usbmmidd_v2.zip
+          curl -L -o usbmmidd_v2.zip https://github.com/rustdesk/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip
           Expand-Archive usbmmidd_v2.zip -DestinationPath .
           Remove-Item usbmmidd_v2\Win32 -Recurse
           Remove-Item -Path "usbmmidd_v2\deviceinstaller64.exe", "usbmmidd_v2\deviceinstaller.exe", "usbmmidd_v2\usbmmidd.bat"
@@ -212,9 +212,9 @@ jobs:
         if: matrix.job.os == 'windows-2022'
         run: |
           try {
-            Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/rustdesk_printer_driver_v4-1.4.zip -OutFile rustdesk_printer_driver_v4-1.4.zip
-            Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/printer_driver_adapter.zip -OutFile printer_driver_adapter.zip
-            Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/sha256sums -OutFile sha256sums
+            curl -L -o rustdesk_printer_driver_v4-1.4.zip https://github.com/rustdesk/hbb_common/releases/download/driver/rustdesk_printer_driver_v4-1.4.zip
+            curl -L -o printer_driver_adapter.zip https://github.com/rustdesk/hbb_common/releases/download/driver/printer_driver_adapter.zip
+            curl -L -o sha256sums https://github.com/rustdesk/hbb_common/releases/download/driver/sha256sums
 
             $checksum_driver = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*rustdesk_printer_driver_v4-1.4.zip$').Matches.Groups[1].Value
             $downloadsum_driver = Get-FileHash -Path rustdesk_printer_driver_v4-1.4.zip -Algorithm SHA256
