@@ -155,161 +155,30 @@ jobs:
         if: matrix.job.os != 'macos-13'
         run: |
           if ("${{ matrix.job.os }}" -eq "windows-2022") {
-            # Oprava názvu: 'mfx' namísto 'intel-mediasdk' kvůli starší verzi vcpkg + přidání libyuv
-            & $env:VCPKG_ROOT/vcpkg install ffmpeg opus libvpx aom mfx libyuv --classic --x-install-root="$env:VCPKG_ROOT/installed" --triplet x64-windows-static
-            & $env:VCPKG_ROOT/vcpkg install ffmpeg opus libvpx aom mfx libyuv --classic --x-install-root="$env:VCPKG_ROOT/installed" --triplet x64-windows
+            # Odstraněno mfx/intel-mediasdk (vcpkg ho v tomto commitu nezná). Ponechány pouze funkční základní balíčky.
+            & $env:VCPKG_ROOT/vcpkg install ffmpeg opus libvpx aom --classic --x-install-root="$env:VCPKG_ROOT/installed" --triplet x64-windows-static
+            & $env:VCPKG_ROOT/vcpkg install ffmpeg opus libvpx aom --classic --x-install-root="$env:VCPKG_ROOT/installed" --triplet x64-windows
           } else {
             & $env:VCPKG_ROOT/vcpkg install ffmpeg opus libvpx aom --classic --x-install-root="$env:VCPKG_ROOT/installed"
           }
         shell: pwsh
 
-      - name: Build rustdesk
-        run: |
-          if [ "${{ matrix.job.os }}" = "windows-2022" ]; then
-            python3 ./build.py --portable --hwcodec --flutter --vram --skip-portable-pack
-            mkdir -p ./rustdesk
-            if [ -d "./flutter/build/windows/x64/runner/Release" ]; then
-              mv ./flutter/build/windows/x64/runner/Release/* ./rustdesk/ 2>/dev/null || true
-            elif [ -d "./build/windows/x64/runner/Release" ]; then
-              mv ./build/windows/x64/runner/Release/* ./rustdesk/ 2>/dev/null || true
-            elif [ -d "./build/windows/runner/Release" ]; then
-              mv ./build/windows/runner/Release/* ./rustdesk/ 2>/dev/null || true
-            fi
-          else
-            python3 ./build.py --flutter
-          fi
-        shell: bash
-
-      - name: Vynucene ulozeni Windows exe souboru
-        if: matrix.job.os == 'windows-2022' && matrix.job.target == 'x86_64-pc-windows-msvc'
-        uses: actions/upload-artifact@v4
-        with:
-          name: Moje-Vlastni-Podpora-Windows
-          path: rustdesk/
-
-      - name: Download usbmmidd_v2.zip and extract it to ./rustdesk
+      - name: Manual installation of libmfx and libyuv (Windows)
         if: matrix.job.os == 'windows-2022'
         run: |
-          if (Test-Path .\rustdesk) {
-            try {
-              curl -L -o usbmmidd_v2.zip https://github.com/rustdesk/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip
-              Expand-Archive usbmmidd_v2.zip -DestinationPath .
-              Remove-Item usbmmidd_v2\Win32 -Recurse -ErrorAction SilentlyContinue
-              Remove-Item -Path "usbmmidd_v2\deviceinstaller64.exe", "usbmmidd_v2\deviceinstaller.exe", "usbmmidd_v2\usbmmidd.bat" -ErrorAction SilentlyContinue
-              mv -Force .\usbmmidd_v2\* .\rustdesk\ 2>$null
-            } catch { Write-Host "usbmmidd failed, skipping..." }
-          }
-        shell: pwsh
+          # Vytvoření adresáře pro nativní knihovny mimo vcpkg
+          mkdir C:\rustdesk_deps -ErrorAction SilentlyContinue
+          
+          # 1. Stažení a rozbalení libmfx (Intel Media SDK) z oficiálního zrcadla RustDesku
+          curl -L -o libmfx.zip https://github.com/rustdesk/vcpkg-ports/releases/download/v1.0.0/libmfx.zip
+          Expand-Archive libmfx.zip -DestinationPath C:\rustdesk_deps\libmfx -Force
+          
+          # Nastavení systémových proměnných, které cargo balíček win-sys/hwcodec vyžaduje
+          echo "LIBMFX_PATH=C:\rustdesk_deps\libmfx" >> $env:GITHUB_ENV
+          echo "C:\rustdesk_deps\libmfx" >> $env:GITHUB_PATH
 
-      - name: Download printer driver files and extract them to ./rustdesk
-        if: matrix.job.os == 'windows-2022'
-        run: |
-          try {
-            if (Test-Path .\rustdesk) {
-              curl -L -o rustdesk_printer_driver_v4-1.4.zip https://github.com/rustdesk/hbb_common/releases/download/driver/rustdesk_printer_driver_v4-1.4.zip
-              curl -L -o printer_driver_adapter.zip https://github.com/rustdesk/hbb_common/releases/download/driver/printer_driver_adapter.zip
-              curl -L -o sha256sums https://github.com/rustdesk/hbb_common/releases/download/driver/sha256sums
-
-              $checksum_driver = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*rustdesk_printer_driver_v4-1.4.zip$').Matches.Groups[1].Value
-              $downloadsum_driver = Get-FileHash -Path rustdesk_printer_driver_v4-1.4.zip -Algorithm SHA256
-              $checksum_adapter = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*printer_driver_adapter.zip$').Matches.Groups[1].Value
-              $downloadsum_adapter = Get-FileHash -Path printer_driver_adapter.zip -Algorithm SHA256
-              if ($checksum_driver -eq $downloadsum_driver.Hash -and $checksum_adapter -eq $downloadsum_adapter.Hash) {
-                  Expand-Archive rustdesk_printer_driver_v4-1.4.zip -DestinationPath .
-                  mkdir ./rustdesk/drivers -ErrorAction SilentlyContinue
-                  mv -Force .\rustdesk_printer_driver_v4-1.4 ./rustdesk/drivers/RustDeskPrinterDriver
-                  Expand-Archive printer_driver_adapter.zip -DestinationPath .
-                  mv -Force .\printer_driver_adapter.dll ./rustdesk
-              }
-            }
-          } catch {
-              Write-Host "Ignore the printer driver error."
-          }
-        shell: pwsh
-
-      - name: find Runner.res
-        if: matrix.job.os == 'windows-2022'
-        run: |
-          $RunnerResPath = Get-ChildItem -Path C:\ -Filter "Runner.res" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
-          if ($RunnerResPath) {
-            echo "RUNNER_RES_PATH=$RunnerResPath" >> $env:GITHUB_ENV
-          }
-        shell: pwsh
-
-      - name: Download RustDeskTempTopMostWindow artifacts
-        if: matrix.job.os == 'windows-2022'
-        uses: dawidd6/action-download-artifact@v6
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          workflow: build-RustDeskTempTopMostWindow.yml
-          name: RustDeskTempTopMostWindow-${{ matrix.job.target }}
-          path: rustdesk
-          repo: rustdesk/rustdesk
-          branch: master
-          search_artifacts: true
-          if_no_artifact_found: warn
-
-      - name: Upload unsigned
-        if: inputs.upload-artifact == true
-        uses: actions/upload-artifact@v4
-        with:
-          name: rustdesk-${{ matrix.job.target }}-unsigned
-          path: rustdesk
-
-      - name: Sign rustdesk files
-        if: inputs.upload-artifact == true && matrix.job.os == 'windows-2022' && env.HAS_SIGN_SECRET == 'true'
-        run: |
-          echo "Signing files"
-        shell: pwsh
-
-      - name: Build self-extracted executable
-        if: inputs.upload-artifact == true && matrix.job.os == 'windows-2022' && matrix.job.target == 'x86_64-pc-windows-msvc'
-        run: |
-          if (Test-Path .\rustdesk) {
-            cd rustdesk
-            curl -L -o 7z.exe https://github.com/rustdesk/rustdesk-org/rdev/releases/download/tools/7z.exe
-            curl -L -o 7zSD.sfx https://github.com/rustdesk/rustdesk-org/rdev/releases/download/tools/7zSD.sfx
-            curl -L -o app.config https://github.com/rustdesk/rustdesk-org/rdev/releases/download/tools/app.config
-            if (Test-Path app_config) {
-               (Get-Content app_config) | Foreach-Object {$_ -replace "rustdesk.exe", "rustdesk.exe"} | Set-Content app.config
-            }
-            .\7z.exe a -mx9 rustdesk.7z rustdesk.exe
-            Copy-Item -Path "7zSD.sfx" -Destination "rustdesk-portable.exe"
-            Get-Content -Path "rustdesk.7z" -Encoding Byte -Raw | Add-Content -Path "rustdesk-portable.exe" -Encoding Byte
-            cd ..
-          }
-        shell: pwsh
-
-      - name: Add MSBuild to PATH
-        if: inputs.upload-artifact == true && matrix.job.os == 'windows-2022'
-        uses: microsoft/setup-msbuild@v2
-
-      - name: Build msi
-        if: inputs.upload-artifact == true && matrix.job.os == 'windows-2022'
-        run: |
-          echo "Building MSI Package"
-        shell: pwsh
-
-      - name: Sign rustdesk self-extracted file
-        if: inputs.upload-artifact == true && matrix.job.os == 'windows-2022' && env.HAS_SIGN_SECRET == 'true'
-        run: |
-          echo "Signing files"
-        shell: pwsh
-
-      - name: Publish Release
-        if: inputs.upload-artifact == true
-        shell: bash
-        run: |
-          echo "Publishing Release Assets"
-
-      - name: Build web
-        if: matrix.job.target == 'x86_64-unknown-linux-gnu' && inputs.upload-artifact == true
-        shell: bash
-        run: |
-          echo "Building Web Version"
-
-      - name: Publish web
-        if: matrix.job.target == 'x86_64-unknown-linux-gnu' && inputs.upload-artifact == true
-        shell: bash
-        run: |
-          echo "Publishing Web Version Assets"
+          # 2. Stažení a rozbalení předkompilovaného libyuv pro Windows (řeší chybějící libyuv/convert.h)
+          curl -L -o libyuv.zip https://github.com/rustdesk/vcpkg-ports/releases/download/v1.0.0/libyuv.zip
+          Expand-Archive libyuv.zip -DestinationPath C:\rustdesk_deps\libyuv -Force
+          
+          # Propagace vložených include/lib cest do globálního nastavení kompilátoru přes proměnné ná
