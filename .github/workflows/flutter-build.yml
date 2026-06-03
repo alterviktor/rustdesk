@@ -155,9 +155,9 @@ jobs:
         if: matrix.job.os != 'macos-13'
         run: |
           if ("${{ matrix.job.os }}" -eq "windows-2022") {
-            # Přidána knihovna libyuv pro zpracování obrazu, doplňující předchozí opravu s intel-mediasdk
-            & $env:VCPKG_ROOT/vcpkg install ffmpeg opus libvpx aom intel-mediasdk libyuv --classic --x-install-root="$env:VCPKG_ROOT/installed" --triplet x64-windows-static
-            & $env:VCPKG_ROOT/vcpkg install ffmpeg opus libvpx aom intel-mediasdk libyuv --classic --x-install-root="$env:VCPKG_ROOT/installed" --triplet x64-windows
+            # Oprava názvu: 'mfx' namísto 'intel-mediasdk' kvůli starší verzi vcpkg + přidání libyuv
+            & $env:VCPKG_ROOT/vcpkg install ffmpeg opus libvpx aom mfx libyuv --classic --x-install-root="$env:VCPKG_ROOT/installed" --triplet x64-windows-static
+            & $env:VCPKG_ROOT/vcpkg install ffmpeg opus libvpx aom mfx libyuv --classic --x-install-root="$env:VCPKG_ROOT/installed" --triplet x64-windows
           } else {
             & $env:VCPKG_ROOT/vcpkg install ffmpeg opus libvpx aom --classic --x-install-root="$env:VCPKG_ROOT/installed"
           }
