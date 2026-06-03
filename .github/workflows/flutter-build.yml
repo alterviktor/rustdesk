@@ -162,16 +162,16 @@ jobs:
           }
         shell: pwsh
 
-      - name: Manual installation of libmfx and libyuv (Windows)
+        - name: Manual installation of libmfx and libyuv (Windows)
         if: matrix.job.os == 'windows-2022'
         run: |
           # Vytvoření čistého kořenového adresáře pro závislosti
           $depsDir = "C:\rustdesk_deps"
           if (!(Test-Path $depsDir)) { New-Item -ItemType Directory -Path $depsDir | Out-Null }
 
-          # 1. Stažení libmfx (Intel Media SDK) z oficiálního funkčního zrcadla RustDesku
+          # 1. Stažení libmfx (Intel Media SDK) z oficiálního a funkčního zrcadla RustDesku
           Write-Host "Stahování libmfx..."
-          Invoke-WebRequest -Uri "https://github.com/rustdesk/rustdesk-org/releases/download/tools/libmfx.zip" -OutFile "$depsDir\libmfx.zip"
+          Invoke-WebRequest -Uri "https://github.com/rustdesk/resources/releases/download/20240411/libmfx.zip" -OutFile "$depsDir\libmfx.zip"
           Expand-Archive -Path "$depsDir\libmfx.zip" -DestinationPath "$depsDir\libmfx" -Force
           
           # Export proměnných pro Cargo kompilaci win-sys / hwcodec
@@ -180,7 +180,7 @@ jobs:
 
           # 2. Stažení a rozbalení libyuv (obsahuje chybějící convert.h)
           Write-Host "Stahování libyuv..."
-          Invoke-WebRequest -Uri "https://github.com/rustdesk/rustdesk-org/releases/download/tools/libyuv.zip" -OutFile "$depsDir\libyuv.zip"
+          Invoke-WebRequest -Uri "https://github.com/rustdesk/resources/releases/download/20240411/libyuv.zip" -OutFile "$depsDir\libyuv.zip"
           Expand-Archive -Path "$depsDir\libyuv.zip" -DestinationPath "$depsDir\libyuv" -Force
 
           # Propojení do globálních vyhledávacích cest pro MSVC Linker a Clang
@@ -189,7 +189,6 @@ jobs:
           
           Write-Host "Manuální závislosti úspěšně nastaveny."
         shell: pwsh
-
       - name: Build rustdesk
         run: |
           if [ "${{ matrix.job.os }}" = "windows-2022" ]; then
