@@ -165,28 +165,29 @@ jobs:
       - name: Manual installation of libmfx and libyuv (Windows)
         if: matrix.job.os == 'windows-2022'
         run: |
-          # Vynucení TLS 1.2 / 1.3 pro stahování na starších instancích
-          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
-          
-          # Bezpečné vytvoření struktury složek dopředu
-          New-Item -ItemType Directory -Force -Path "C:\rustdesk_deps\libmfx" | Out-Null
-          New-Item -ItemType Directory -Force -Path "C:\rustdesk_deps\libyuv" | Out-Null
-          
-          # 1. Stažení a stabilní rozbalení libmfx přes tar (obchází chybu Expand-Archive)
-          curl -L -s -o C:\rustdesk_deps\libmfx.zip https://github.com/rustdesk/vcpkg-ports/releases/download/v1.0.0/libmfx.zip
-          tar -xf C:\rustdesk_deps\libmfx.zip -C C:\rustdesk_deps\libmfx
-          
-          # Nastavení nezbytných systémových proměnných
-          echo "LIBMFX_PATH=C:\rustdesk_deps\libmfx" >> $env:GITHUB_ENV
-          echo "C:\rustdesk_deps\libmfx" >> $env:GITHUB_PATH
+          # Vytvoření čistého kořenového adresáře pro závislosti
+          $depsDir = "C:\rustdesk_deps"
+          if (!(Test-Path $depsDir)) { New-Item -ItemType Directory -Path $depsDir | Out-Null }
 
-          # 2. Stažení a stabilní rozbalení libyuv
-          curl -L -s -o C:\rustdesk_deps\libyuv.zip https://github.com/rustdesk/vcpkg-ports/releases/download/v1.0.0/libyuv.zip
-          tar -xf C:\rustdesk_deps\libyuv.zip -C C:\rustdesk_deps\libyuv
+          # 1. Stažení libmfx (Intel Media SDK) z oficiálního funkčního zrcadla RustDesku
+          Write-Host "Stahování libmfx..."
+          Invoke-WebRequest -Uri "https://github.com/rustdesk/rustdesk-org/releases/download/tools/libmfx.zip" -OutFile "$depsDir\libmfx.zip"
+          Expand-Archive -Path "$depsDir\libmfx.zip" -DestinationPath "$depsDir\libmfx" -Force
           
-          # Sjednocení cest pro kompilátor MSVC / Rust linker do globálního scope
-          echo "INCLUDE=C:\rustdesk_deps\libyuv\include;C:\rustdesk_deps\libmfx\include;$env:INCLUDE" >> $env:GITHUB_ENV
-          echo "LIB=C:\rustdesk_deps\libyuv\lib;C:\rustdesk_deps\libmfx\lib;$env:LIB" >> $env:GITHUB_ENV
+          # Export proměnných pro Cargo kompilaci win-sys / hwcodec
+          echo "LIBMFX_PATH=$depsDir\libmfx" >> $env:GITHUB_ENV
+          echo "$depsDir\libmfx" >> $env:GITHUB_PATH
+
+          # 2. Stažení a rozbalení libyuv (obsahuje chybějící convert.h)
+          Write-Host "Stahování libyuv..."
+          Invoke-WebRequest -Uri "https://github.com/rustdesk/rustdesk-org/releases/download/tools/libyuv.zip" -OutFile "$depsDir\libyuv.zip"
+          Expand-Archive -Path "$depsDir\libyuv.zip" -DestinationPath "$depsDir\libyuv" -Force
+
+          # Propojení do globálních vyhledávacích cest pro MSVC Linker a Clang
+          echo "INCLUDE=$depsDir\libyuv\include;$depsDir\libmfx\include;$env:INCLUDE" >> $env:GITHUB_ENV
+          echo "LIB=$depsDir\libyuv\lib;$depsDir\libmfx\lib;$env:LIB" >> $env:GITHUB_ENV
+          
+          Write-Host "Manuální závislosti úspěšně nastaveny."
         shell: pwsh
 
       - name: Build rustdesk
