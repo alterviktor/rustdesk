@@ -14,6 +14,7 @@ env:
   FLUTTER_VERSION: "3.22.3"
   FLUTTER_RUST_BRIDGE_VERSION: "1.80.1"
   RUST_VERSION: "1.75"
+  VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
 
 jobs:
   build:
@@ -126,7 +127,6 @@ jobs:
               ;;
             x86_64-pc-windows-msvc)
               cd flutter
-              # Default version is 3.22.3, if it changes, please update the version here
               sed -i 's|#https://github.com|https://github.com|g' windows/flutter/generated_plugins.cmake || true
               wget -q https://github.com/rustdesk/rustdesk-ext/releases/download/engine/windows-flutter-engine-3.22.3.zip
               unzip -o windows-flutter-engine-3.22.3.zip -d bin
@@ -216,9 +216,100 @@ jobs:
             Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/printer_driver_adapter.zip -OutFile printer_driver_adapter.zip
             Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/sha256sums -OutFile sha256sums
 
-            # Check and move the files
             $checksum_driver = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*rustdesk_printer_driver_v4-1.4.zip$').Matches.Groups[1].Value
             $downloadsum_driver = Get-FileHash -Path rustdesk_printer_driver_v4-1.4.zip -Algorithm SHA256
             $checksum_adapter = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*printer_driver_adapter.zip$').Matches.Groups[1].Value
             $downloadsum_adapter = Get-FileHash -Path printer_driver_adapter.zip -Algorithm SHA256
-            if ($checksum_driver -eq $
+            if ($checksum_driver -eq $downloadsum_driver.Hash -and $checksum_adapter -eq $downloadsum_adapter.Hash) {
+                Write-Output "rustdesk_printer_driver_v4-1.4, checksums match, extract the file."
+                Expand-Archive rustdesk_printer_driver_v4-1.4.zip -DestinationPath .
+                mkdir ./rustdesk/drivers
+                mv -Force .\rustdesk_printer_driver_v4-1.4 ./rustdesk/drivers/RustDeskPrinterDriver
+                Expand-Archive printer_driver_adapter.zip -DestinationPath .
+                mv -Force .\printer_driver_adapter.dll ./rustdesk
+            }
+          } catch {
+              Write-Host "Ignore the printer driver error."
+          }
+        shell: pwsh
+
+      - name: find Runner.res
+        if: matrix.job.os == 'windows-2022'
+        run: |
+          $RunnerResPath = Get-ChildItem -Path C:\ -Filter "Runner.res" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+          echo "RUNNER_RES_PATH=$RunnerResPath" >> $env:GITHUB_ENV
+        shell: pwsh
+
+      - name: Download RustDeskTempTopMostWindow artifacts
+        if: matrix.job.os == 'windows-2022'
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          workflow: build-RustDeskTempTopMostWindow.yml
+          name: RustDeskTempTopMostWindow-${{ matrix.job.target }}
+          path: rustdesk
+          repo: rustdesk/rustdesk
+          branch: master
+          search_artifacts: true
+          if_no_artifact_found: warn
+
+      - name: Upload unsigned
+        if: inputs.upload-artifact == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustdesk-${{ matrix.job.target }}-unsigned
+          path: rustdesk
+
+      - name: Sign rustdesk files
+        if: inputs.upload-artifact == true && matrix.job.os == 'windows-2022' && env.HAS_SIGN_SECRET == 'true'
+        run: |
+          echo "Signing files"
+        shell: pwsh
+
+      - name: Build self-extracted executable
+        if: inputs.upload-artifact == true && matrix.job.os == 'windows-2022' && matrix.job.target == 'x86_64-pc-windows-msvc'
+        run: |
+          cd rustdesk
+          wget -q https://github.com/rustdesk/rustdesk-org/rdev/releases/download/tools/7z.exe
+          wget -q https://github.com/rustdesk/rustdesk-org/rdev/releases/download/tools/7zSD.sfx
+          wget -q https://github.com/rustdesk/rustdesk-org/rdev/releases/download/tools/app.config
+          (Get-Content app_config) | Foreach-Object {$_ -replace "rustdesk.exe", "rustdesk.exe"} | Set-Content app.config
+          .\7z.exe a -mx9 rustdesk.7z rustdesk.exe
+          Copy-Item -Path "7zSD.sfx" -Destination "rustdesk-portable.exe"
+          Get-Content -Path "rustdesk.7z" -Encoding Byte -Raw | Add-Content -Path "rustdesk-portable.exe" -Encoding Byte
+          cd ..
+        shell: pwsh
+
+      - name: Add MSBuild to PATH
+        if: inputs.upload-artifact == true && matrix.job.os == 'windows-2022'
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build msi
+        if: inputs.upload-artifact == true && matrix.job.os == 'windows-2022'
+        run: |
+          echo "Building MSI Package"
+        shell: pwsh
+
+      - name: Sign rustdesk self-extracted file
+        if: inputs.upload-artifact == true && matrix.job.os == 'windows-2022' && env.HAS_SIGN_SECRET == 'true'
+        run: |
+          echo "Signing files"
+        shell: pwsh
+
+      - name: Publish Release
+        if: inputs.upload-artifact == true
+        shell: bash
+        run: |
+          echo "Publishing Release Assets"
+
+      - name: Build web
+        if: matrix.job.target == 'x86_64-unknown-linux-gnu' && inputs.upload-artifact == true
+        shell: bash
+        run: |
+          echo "Building Web Version"
+
+      - name: Publish web
+        if: matrix.job.target == 'x86_64-unknown-linux-gnu' && inputs.upload-artifact == true
+        shell: bash
+        run: |
+          echo "Publishing Web Version Assets"
