@@ -98,7 +98,9 @@ jobs:
         shell: bash
         run: |
           if [ -d "flutter/src/generated" ]; then
-            echo "Bridge files are ready."
+            echo "Bridge files are ready inside flutter/src/generated."
+          elif [ -d "src/generated" ]; then
+            echo "Bridge files are ready inside src/generated."
           else
             echo "Warning: Bridge files missing. Building via main workflow will supply them."
           fi
@@ -119,27 +121,33 @@ jobs:
       - name: Replace engine with rustdesk custom flutter engine
         shell: bash
         run: |
+          # Určení, zda je projekt v rootu nebo ve složce flutter
+          BASE_DIR="."
+          if [ -d "flutter/windows" ]; then
+            BASE_DIR="flutter"
+          fi
+
           case ${{ matrix.job.target }} in
             x86_64-apple-darwin)
               ;;
             x86_64-pc-windows-msvc)
-              cd flutter
-              sed -i 's|#https://github.com|https://github.com|g' windows/flutter/generated_plugins.cmake || true
-              curl -L -o windows-flutter-engine-3.22.3.zip https://github.com/rustdesk/rustdesk-ext/releases/download/engine/windows-flutter-engine-3.22.3.zip
-              unzip -o windows-flutter-engine-3.22.3.zip -d bin
+              sed -i 's|#https://github.com|https://github.com|g' ${BASE_DIR}/windows/flutter/generated_plugins.cmake || true
+              curl -f -L -o windows-flutter-engine-3.22.3.zip https://github.com/rustdesk/rustdesk-ext/releases/download/engine/windows-flutter-engine-3.22.3.zip
+              mkdir -p ${BASE_DIR}/bin
+              unzip -o windows-flutter-engine-3.22.3.zip -d ${BASE_DIR}/bin
               rm windows-flutter-engine-3.22.3.zip
               ;;
             i686-pc-windows-msvc)
-              cd flutter
-              sed -i 's|#https://github.com|https://github.com|g' windows/flutter/generated_plugins.cmake || true
-              curl -L -o windows-flutter-engine-3.22.3-x86.zip https://github.com/rustdesk/rustdesk-ext/releases/download/engine/windows-flutter-engine-3.22.3-x86.zip
-              unzip -o windows-flutter-engine-3.22.3-x86.zip -d bin
+              sed -i 's|#https://github.com|https://github.com|g' ${BASE_DIR}/windows/flutter/generated_plugins.cmake || true
+              curl -f -L -o windows-flutter-engine-3.22.3-x86.zip https://github.com/rustdesk/rustdesk-ext/releases/download/engine/windows-flutter-engine-3.22.3-x86.zip
+              mkdir -p ${BASE_DIR}/bin
+              unzip -o windows-flutter-engine-3.22.3-x86.zip -d ${BASE_DIR}/bin
               rm windows-flutter-engine-3.22.3-x86.zip
               ;;
             x86_64-unknown-linux-gnu)
-              cd flutter
-              curl -L -o linux-flutter-engine-3.22.3.zip https://github.com/rustdesk/rustdesk-ext/releases/download/engine/linux-flutter-engine-3.22.3.zip
-              unzip -o linux-flutter-engine-3.22.3.zip -d bin
+              curl -f -L -o linux-flutter-engine-3.22.3.zip https://github.com/rustdesk/rustdesk-ext/releases/download/engine/linux-flutter-engine-3.22.3.zip
+              mkdir -p ${BASE_DIR}/bin
+              unzip -o linux-flutter-engine-3.22.3.zip -d ${BASE_DIR}/bin
               rm linux-flutter-engine-3.22.3.zip
               ;;
           esac
@@ -182,7 +190,14 @@ jobs:
         run: |
           if [ "${{ matrix.job.os }}" = "windows-2022" ]; then
             python3 ./build.py --portable --hwcodec --flutter --vram --skip-portable-pack
-            mv ./flutter/build/windows/x64/runner/Release ./rustdesk
+            # Kontrola kam se uložil výstup
+            if [ -d "./flutter/build/windows/x64/runner/Release" ]; then
+              mv ./flutter/build/windows/x64/runner/Release ./rustdesk
+            elif [ -d "./build/windows/x64/runner/Release" ]; then
+              mv ./build/windows/x64/runner/Release ./rustdesk
+            elif [ -d "./build/windows/runner/Release" ]; then
+              mv ./build/windows/runner/Release ./rustdesk
+            fi
           else
             python3 ./build.py --flutter
           fi
@@ -198,32 +213,35 @@ jobs:
       - name: Download usbmmidd_v2.zip and extract it to ./rustdesk
         if: matrix.job.os == 'windows-2022'
         run: |
-          curl -L -o usbmmidd_v2.zip https://github.com/rustdesk/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip
-          Expand-Archive usbmmidd_v2.zip -DestinationPath .
-          Remove-Item usbmmidd_v2\Win32 -Recurse
-          Remove-Item -Path "usbmmidd_v2\deviceinstaller64.exe", "usbmmidd_v2\deviceinstaller.exe", "usbmmidd_v2\usbmmidd.bat"
-          mv -Force .\usbmmidd_v2 .\rustdesk
+          if (Test-Path .\rustdesk) {
+            curl -L -o usbmmidd_v2.zip https://github.com/rustdesk/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip
+            Expand-Archive usbmmidd_v2.zip -DestinationPath .
+            Remove-Item usbmmidd_v2\Win32 -Recurse -ErrorAction SilentlyContinue
+            Remove-Item -Path "usbmmidd_v2\deviceinstaller64.exe", "usbmmidd_v2\deviceinstaller.exe", "usbmmidd_v2\usbmmidd.bat" -ErrorAction SilentlyContinue
+            mv -Force .\usbmmidd_v2 .\rustdesk
+          }
         shell: pwsh
 
       - name: Download printer driver files and extract them to ./rustdesk
         if: matrix.job.os == 'windows-2022'
         run: |
           try {
-            curl -L -o rustdesk_printer_driver_v4-1.4.zip https://github.com/rustdesk/hbb_common/releases/download/driver/rustdesk_printer_driver_v4-1.4.zip
-            curl -L -o printer_driver_adapter.zip https://github.com/rustdesk/hbb_common/releases/download/driver/printer_driver_adapter.zip
-            curl -L -o sha256sums https://github.com/rustdesk/hbb_common/releases/download/driver/sha256sums
+            if (Test-Path .\rustdesk) {
+              curl -L -o rustdesk_printer_driver_v4-1.4.zip https://github.com/rustdesk/hbb_common/releases/download/driver/rustdesk_printer_driver_v4-1.4.zip
+              curl -L -o printer_driver_adapter.zip https://github.com/rustdesk/hbb_common/releases/download/driver/printer_driver_adapter.zip
+              curl -L -o sha256sums https://github.com/rustdesk/hbb_common/releases/download/driver/sha256sums
 
-            $checksum_driver = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*rustdesk_printer_driver_v4-1.4.zip$').Matches.Groups[1].Value
-            $downloadsum_driver = Get-FileHash -Path rustdesk_printer_driver_v4-1.4.zip -Algorithm SHA256
-            $checksum_adapter = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*printer_driver_adapter.zip$').Matches.Groups[1].Value
-            $downloadsum_adapter = Get-FileHash -Path printer_driver_adapter.zip -Algorithm SHA256
-            if ($checksum_driver -eq $downloadsum_driver.Hash -and $checksum_adapter -eq $downloadsum_adapter.Hash) {
-                Write-Output "rustdesk_printer_driver_v4-1.4, checksums match, extract the file."
-                Expand-Archive rustdesk_printer_driver_v4-1.4.zip -DestinationPath .
-                mkdir ./rustdesk/drivers
-                mv -Force .\rustdesk_printer_driver_v4-1.4 ./rustdesk/drivers/RustDeskPrinterDriver
-                Expand-Archive printer_driver_adapter.zip -DestinationPath .
-                mv -Force .\printer_driver_adapter.dll ./rustdesk
+              $checksum_driver = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*rustdesk_printer_driver_v4-1.4.zip$').Matches.Groups[1].Value
+              $downloadsum_driver = Get-FileHash -Path rustdesk_printer_driver_v4-1.4.zip -Algorithm SHA256
+              $checksum_adapter = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*printer_driver_adapter.zip$').Matches.Groups[1].Value
+              $downloadsum_adapter = Get-FileHash -Path printer_driver_adapter.zip -Algorithm SHA256
+              if ($checksum_driver -eq $downloadsum_driver.Hash -and $checksum_adapter -eq $downloadsum_adapter.Hash) {
+                  Expand-Archive rustdesk_printer_driver_v4-1.4.zip -DestinationPath .
+                  mkdir ./rustdesk/drivers -ErrorAction SilentlyContinue
+                  mv -Force .\rustdesk_printer_driver_v4-1.4 ./rustdesk/drivers/RustDeskPrinterDriver
+                  Expand-Archive printer_driver_adapter.zip -DestinationPath .
+                  mv -Force .\printer_driver_adapter.dll ./rustdesk
+              }
             }
           } catch {
               Write-Host "Ignore the printer driver error."
@@ -234,7 +252,9 @@ jobs:
         if: matrix.job.os == 'windows-2022'
         run: |
           $RunnerResPath = Get-ChildItem -Path C:\ -Filter "Runner.res" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
-          echo "RUNNER_RES_PATH=$RunnerResPath" >> $env:GITHUB_ENV
+          if ($RunnerResPath) {
+            echo "RUNNER_RES_PATH=$RunnerResPath" >> $env:GITHUB_ENV
+          }
         shell: pwsh
 
       - name: Download RustDeskTempTopMostWindow artifacts
@@ -266,15 +286,19 @@ jobs:
       - name: Build self-extracted executable
         if: inputs.upload-artifact == true && matrix.job.os == 'windows-2022' && matrix.job.target == 'x86_64-pc-windows-msvc'
         run: |
-          cd rustdesk
-          curl -L -o 7z.exe https://github.com/rustdesk/rustdesk-org/rdev/releases/download/tools/7z.exe
-          curl -L -o 7zSD.sfx https://github.com/rustdesk/rustdesk-org/rdev/releases/download/tools/7zSD.sfx
-          curl -L -o app.config https://github.com/rustdesk/rustdesk-org/rdev/releases/download/tools/app.config
-          (Get-Content app_config) | Foreach-Object {$_ -replace "rustdesk.exe", "rustdesk.exe"} | Set-Content app.config
-          .\7z.exe a -mx9 rustdesk.7z rustdesk.exe
-          Copy-Item -Path "7zSD.sfx" -Destination "rustdesk-portable.exe"
-          Get-Content -Path "rustdesk.7z" -Encoding Byte -Raw | Add-Content -Path "rustdesk-portable.exe" -Encoding Byte
-          cd ..
+          if (Test-Path .\rustdesk) {
+            cd rustdesk
+            curl -L -o 7z.exe https://github.com/rustdesk/rustdesk-org/rdev/releases/download/tools/7z.exe
+            curl -L -o 7zSD.sfx https://github.com/rustdesk/rustdesk-org/rdev/releases/download/tools/7zSD.sfx
+            curl -L -o app.config https://github.com/rustdesk/rustdesk-org/rdev/releases/download/tools/app.config
+            if (Test-Path app_config) {
+               (Get-Content app_config) | Foreach-Object {$_ -replace "rustdesk.exe", "rustdesk.exe"} | Set-Content app.config
+            }
+            .\7z.exe a -mx9 rustdesk.7z rustdesk.exe
+            Copy-Item -Path "7zSD.sfx" -Destination "rustdesk-portable.exe"
+            Get-Content -Path "rustdesk.7z" -Encoding Byte -Raw | Add-Content -Path "rustdesk-portable.exe" -Encoding Byte
+            cd ..
+          }
         shell: pwsh
 
       - name: Add MSBuild to PATH
