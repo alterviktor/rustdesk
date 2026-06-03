@@ -23,8 +23,17 @@ jobs:
       fail-fast: false
       matrix:
         job:
-          - { target: x86_64-unknown-linux-gnu    , os: ubuntu-24.04                  }
-          - { target: x86_64-pc-windows-msvc      , os: windows-2022                  }
+          - { target: aarch64-unknown-linux-gnu    , os: ubuntu-20.04, use-cross: true }
+          - { target: arm-unknown-linux-gnueabihf  , os: ubuntu-20.04, use-cross: true }
+          - { target: arm-unknown-linux-musleabihf , os: ubuntu-20.04, use-cross: true }
+          - { target: i686-pc-windows-msvc         , os: windows-2022                  }
+          - { target: i686-unknown-linux-gnu       , os: ubuntu-20.04, use-cross: true }
+          - { target: i686-unknown-linux-musl      , os: ubuntu-20.04, use-cross: true }
+          - { target: x86_64-apple-darwin          , os: macos-13                      }
+          - { target: x86_64-pc-windows-gnu        , os: windows-2022                  }
+          - { target: x86_64-pc-windows-msvc       , os: windows-2022                  }
+          - { target: x86_64-unknown-linux-gnu     , os: ubuntu-20.04                  }
+          - { target: x86_64-unknown-linux-musl    , os: ubuntu-20.04, use-cross: true }
     steps:
       - name: Free Disk Space (Ubuntu)
         if: runner.os == 'Linux'
@@ -56,9 +65,51 @@ jobs:
           case ${{ matrix.job.target }} in
             x86_64-unknown-linux-gnu)
               sudo apt-get -y update
-              sudo apt-get install -y clang cmake curl gcc git g++ libpam0g-dev libasound2-dev libunwind-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgtk-3-dev libpulse-dev libva-dev libvdpau-dev libxcb-randr0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxdo-dev libxfixes-dev nasm wget
+              sudo apt-get install -y \
+                  clang \
+                  cmake \
+                  curl \
+                  gcc \
+                  git \
+                  g++ \
+                  libpam0g-dev \
+                  libasound2-dev \
+                  libunwind-dev \
+                  libgstreamer1.0-dev \
+                  libgstreamer-plugins-base1.0-dev \
+                  libgtk-3-dev \
+                  libpulse-dev \
+                  libva-dev \
+                  libvdpau-dev \
+                  libxcb-randr0-dev \
+                  libxcb-shape0-dev \
+                  libxcb-xfixes0-dev \
+                  libxdo-dev \
+                  libxfixes-dev \
+                  nasm \
+                  wget
               ;;
+            arm-unknown-linux-*) sudo apt-get -y update ; sudo apt-get -y install gcc-arm-linux-gnueabihf ;;
+            aarch64-unknown-linux-gnu) sudo apt-get -y update ; sudo apt-get -y install gcc-aarch64-linux-gnu ;;
           esac
+
+      - name: Restore bridge files
+        shell: bash
+        run: |
+          if [ -d "flutter/src/generated" ]; then
+            echo "Bridge files already exist"
+          else
+            echo "Download bridge files"
+            wget -q https://github.com/rustdesk/rustdesk/releases/download/nightly/bridge.tgz
+            tar -xzf bridge.tgz
+            rm bridge.tgz
+          fi
+
+      - name: Install LLVM and Clang
+        if: matrix.job.os == 'windows-2022'
+        run: |
+          choco install llvm -y
+        shell: pwsh
 
       - name: Install flutter
         uses: subosito/flutter-action@v2
@@ -66,6 +117,42 @@ jobs:
           channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
+
+      - name: Replace engine with rustdesk custom flutter engine
+        shell: bash
+        run: |
+          case ${{ matrix.job.target }} in
+            x86_64-apple-darwin)
+              ;;
+            x86_64-pc-windows-msvc)
+              cd flutter
+              # Default version is 3.22.3, if it changes, please update the version here
+              sed -i 's|#https://github.com|https://github.com|g' windows/flutter/generated_plugins.cmake || true
+              wget -q https://github.com/rustdesk/rustdesk-ext/releases/download/engine/windows-flutter-engine-3.22.3.zip
+              unzip -o windows-flutter-engine-3.22.3.zip -d bin
+              rm windows-flutter-engine-3.22.3.zip
+              ;;
+            i686-pc-windows-msvc)
+              cd flutter
+              sed -i 's|#https://github.com|https://github.com|g' windows/flutter/generated_plugins.cmake || true
+              wget -q https://github.com/rustdesk/rustdesk-ext/releases/download/engine/windows-flutter-engine-3.22.3-x86.zip
+              unzip -o windows-flutter-engine-3.22.3-x86.zip -d bin
+              rm windows-flutter-engine-3.22.3-x86.zip
+              ;;
+            x86_64-unknown-linux-gnu)
+              cd flutter
+              wget -q https://github.com/rustdesk/rustdesk-ext/releases/download/engine/linux-flutter-engine-3.22.3.zip
+              unzip -o linux-flutter-engine-3.22.3.zip -d bin
+              rm linux-flutter-engine-3.22.3.zip
+              ;;
+          esac
+
+      - name: Patch flutter
+        shell: bash
+        run: |
+          cd $(dirname $(dirname $(which flutter)))
+          [[ "3.24.5" == "${{ env.FLUTTER_VERSION }}" ]] && git apply ${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enable_feedback.patch || true
+          [[ "3.22.3" == "${{ env.FLUTTER_VERSION }}" ]] && git apply ${{ github.workspace }}/.github/patches/flutter_3.22.2_dropdown_menu_enable_feedback.patch || true
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@v1
@@ -77,10 +164,21 @@ jobs:
         with:
           prefix-key: flutter-build-${{ matrix.job.os }}
 
-      - name: Install vcpkg dependencies (Windows)
-        if: matrix.job.os == 'windows-2022'
+      - name: Setup vcpkg with Github Actions binary cache
+        if: matrix.job.os != 'macos-13'
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgDirectory: /opt/artifacts/vcpkg
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+
+      - name: Install vcpkg dependencies
+        if: matrix.job.os != 'macos-13'
         run: |
-          vcpkg install --triplet x64-windows
+          if [ "${{ matrix.job.os }}" = "windows-2022" ]; then
+            $env:VCPKG_ROOT/vcpkg install --x-install-root="$env:VCPKG_ROOT/installed" --triplet x64-windows
+          else
+            $VCPKG_ROOT/vcpkg install --x-install-root="$VCPKG_ROOT/installed"
+          fi
         shell: pwsh
 
       - name: Build rustdesk
@@ -94,8 +192,33 @@ jobs:
         shell: bash
 
       - name: Vynucene ulozeni Windows exe souboru
-        if: matrix.job.os == 'windows-2022'
+        if: matrix.job.os == 'windows-2022' && matrix.job.target == 'x86_64-pc-windows-msvc'
         uses: actions/upload-artifact@v4
         with:
           name: Moje-Vlastni-Podpora-Windows
           path: rustdesk/
+
+      - name: Download usbmmidd_v2.zip and extract it to ./rustdesk
+        if: matrix.job.os == 'windows-2022'
+        run: |
+          Invoke-WebRequest -Uri https://github.com/rustdesk/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip -OutFile usbmmidd_v2.zip
+          Expand-Archive usbmmidd_v2.zip -DestinationPath .
+          Remove-Item usbmmidd_v2\Win32 -Recurse
+          Remove-Item -Path "usbmmidd_v2\deviceinstaller64.exe", "usbmmidd_v2\deviceinstaller.exe", "usbmmidd_v2\usbmmidd.bat"
+          mv -Force .\usbmmidd_v2 .\rustdesk
+        shell: pwsh
+
+      - name: Download printer driver files and extract them to ./rustdesk
+        if: matrix.job.os == 'windows-2022'
+        run: |
+          try {
+            Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/rustdesk_printer_driver_v4-1.4.zip -OutFile rustdesk_printer_driver_v4-1.4.zip
+            Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/printer_driver_adapter.zip -OutFile printer_driver_adapter.zip
+            Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/sha256sums -OutFile sha256sums
+
+            # Check and move the files
+            $checksum_driver = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*rustdesk_printer_driver_v4-1.4.zip$').Matches.Groups[1].Value
+            $downloadsum_driver = Get-FileHash -Path rustdesk_printer_driver_v4-1.4.zip -Algorithm SHA256
+            $checksum_adapter = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*printer_driver_adapter.zip$').Matches.Groups[1].Value
+            $downloadsum_adapter = Get-FileHash -Path printer_driver_adapter.zip -Algorithm SHA256
+            if ($checksum_driver -eq $
