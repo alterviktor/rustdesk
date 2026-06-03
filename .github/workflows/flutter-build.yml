@@ -94,31 +94,17 @@ jobs:
             aarch64-unknown-linux-gnu) sudo apt-get -y update ; sudo apt-get -y install gcc-aarch64-linux-gnu ;;
           esac
 
-      - name: Restore bridge files (Windows)
-        if: matrix.job.os == 'windows-2022'
-        shell: pwsh
-        run: |
-          if (Test-Path "flutter/src/generated") {
-            Write-Output "Bridge files already exist"
-          } else {
-            Write-Output "Download bridge files via PowerShell"
-            Invoke-WebRequest -Uri "https://github.com/rustdesk/rustdesk/releases/download/nightly/bridge.tgz" -OutFile "bridge.tgz"
-            tar -xzf bridge.tgz
-            Remove-Item bridge.tgz
-          }
-
-      - name: Restore bridge files (Non-Windows)
-        if: matrix.job.os != 'windows-2022'
-        shell: bash
-        run: |
-          if [ -d "flutter/src/generated" ]; then
-            echo "Bridge files already exist"
-          else
-            echo "Download bridge files"
-            wget -q https://github.com/rustdesk/rustdesk/releases/download/nightly/bridge.tgz
-            tar -xzf bridge.tgz
-            rm bridge.tgz
-          fi
+      - name: Restore bridge files (Universal via GitHub Artifacts)
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          workflow: build-flutter-rust-bridge.yml
+          name: bridge-artifact
+          path: flutter/src/generated
+          repo: rustdesk/rustdesk
+          branch: master
+          search_artifacts: true
+          if_no_artifact_found: warn
 
       - name: Install LLVM and Clang
         if: matrix.job.os == 'windows-2022'
@@ -191,7 +177,7 @@ jobs:
           if [ "${{ matrix.job.os }}" = "windows-2022" ]; then
             $env:VCPKG_ROOT/vcpkg install --x-install-root="$env:VCPKG_ROOT/installed" --triplet x64-windows
           else
-            $VCPKG_ROOT/vcpkg install --x-install-root="$VCPKG_ROOT/installed"
+            $VVCPKG_ROOT/vcpkg install --x-install-root="$VCPKG_ROOT/installed"
           fi
         shell: pwsh
 
