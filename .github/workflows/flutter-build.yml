@@ -94,7 +94,21 @@ jobs:
             aarch64-unknown-linux-gnu) sudo apt-get -y update ; sudo apt-get -y install gcc-aarch64-linux-gnu ;;
           esac
 
-      - name: Restore bridge files
+      - name: Restore bridge files (Windows)
+        if: matrix.job.os == 'windows-2022'
+        shell: pwsh
+        run: |
+          if (Test-Path "flutter/src/generated") {
+            Write-Output "Bridge files already exist"
+          } else {
+            Write-Output "Download bridge files via PowerShell"
+            Invoke-WebRequest -Uri "https://github.com/rustdesk/rustdesk/releases/download/nightly/bridge.tgz" -OutFile "bridge.tgz"
+            tar -xzf bridge.tgz
+            Remove-Item bridge.tgz
+          }
+
+      - name: Restore bridge files (Non-Windows)
+        if: matrix.job.os != 'windows-2022'
         shell: bash
         run: |
           if [ -d "flutter/src/generated" ]; then
@@ -128,14 +142,14 @@ jobs:
             x86_64-pc-windows-msvc)
               cd flutter
               sed -i 's|#https://github.com|https://github.com|g' windows/flutter/generated_plugins.cmake || true
-              wget -q https://github.com/rustdesk/rustdesk-ext/releases/download/engine/windows-flutter-engine-3.22.3.zip
+              curl -L -o windows-flutter-engine-3.22.3.zip https://github.com/rustdesk/rustdesk-ext/releases/download/engine/windows-flutter-engine-3.22.3.zip
               unzip -o windows-flutter-engine-3.22.3.zip -d bin
               rm windows-flutter-engine-3.22.3.zip
               ;;
             i686-pc-windows-msvc)
               cd flutter
               sed -i 's|#https://github.com|https://github.com|g' windows/flutter/generated_plugins.cmake || true
-              wget -q https://github.com/rustdesk/rustdesk-ext/releases/download/engine/windows-flutter-engine-3.22.3-x86.zip
+              curl -L -o windows-flutter-engine-3.22.3-x86.zip https://github.com/rustdesk/rustdesk-ext/releases/download/engine/windows-flutter-engine-3.22.3-x86.zip
               unzip -o windows-flutter-engine-3.22.3-x86.zip -d bin
               rm windows-flutter-engine-3.22.3-x86.zip
               ;;
@@ -181,21 +195,14 @@ jobs:
           fi
         shell: pwsh
 
-      - name: Build rustdesk (Windows)
-        if: matrix.job.os == 'windows-2022'
+      - name: Build rustdesk
         run: |
-          python3 ./build.py --portable --hwcodec --flutter --vram --skip-portable-pack
-          if (Test-Path ./flutter/build/windows/x64/runner/Release) {
+          if [ "${{ matrix.job.os }}" = "windows-2022" ]; then
+            python3 ./build.py --portable --hwcodec --flutter --vram --skip-portable-pack
             mv ./flutter/build/windows/x64/runner/Release ./rustdesk
-          } elseif (Test-Path ./flutter/build/windows/runner/Release) {
-            mv ./flutter/build/windows/runner/Release ./rustdesk
-          }
-        shell: pwsh
-
-      - name: Build rustdesk (Non-Windows)
-        if: matrix.job.os != 'windows-2022'
-        run: |
-          python3 ./build.py --flutter
+          else
+            python3 ./build.py --flutter
+          fi
         shell: bash
 
       - name: Vynucene ulozeni Windows exe souboru
@@ -277,9 +284,9 @@ jobs:
         if: inputs.upload-artifact == true && matrix.job.os == 'windows-2022' && matrix.job.target == 'x86_64-pc-windows-msvc'
         run: |
           cd rustdesk
-          wget -q https://github.com/rustdesk/rustdesk-org/rdev/releases/download/tools/7z.exe
-          wget -q https://github.com/rustdesk/rustdesk-org/rdev/releases/download/tools/7zSD.sfx
-          wget -q https://github.com/rustdesk/rustdesk-org/rdev/releases/download/tools/app.config
+          curl -L -o 7z.exe https://github.com/rustdesk/rustdesk-org/rdev/releases/download/tools/7z.exe
+          curl -L -o 7zSD.sfx https://github.com/rustdesk/rustdesk-org/rdev/releases/download/tools/7zSD.sfx
+          curl -L -o app.config https://github.com/rustdesk/rustdesk-org/rdev/releases/download/tools/app.config
           (Get-Content app_config) | Foreach-Object {$_ -replace "rustdesk.exe", "rustdesk.exe"} | Set-Content app.config
           .\7z.exe a -mx9 rustdesk.7z rustdesk.exe
           Copy-Item -Path "7zSD.sfx" -Destination "rustdesk-portable.exe"
