@@ -97,10 +97,8 @@ jobs:
       - name: Verify or generate bridge files
         shell: bash
         run: |
-          if [ -d "flutter/src/generated" ]; then
-            echo "Bridge files are ready inside flutter/src/generated."
-          elif [ -d "src/generated" ]; then
-            echo "Bridge files are ready inside src/generated."
+          if [ -d "flutter/src/generated" ] || [ -d "src/generated" ]; then
+            echo "Bridge files are ready."
           else
             echo "Warning: Bridge files missing. Building via main workflow will supply them."
           fi
@@ -118,46 +116,23 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
-      - name: Replace engine with rustdesk custom flutter engine
+      - name: Skip custom engine and prepare standard project
         shell: bash
         run: |
-          # Určení, zda je projekt v rootu nebo ve složce flutter
-          BASE_DIR="."
-          if [ -d "flutter/windows" ]; then
-            BASE_DIR="flutter"
-          fi
-
-          case ${{ matrix.job.target }} in
-            x86_64-apple-darwin)
-              ;;
-            x86_64-pc-windows-msvc)
-              sed -i 's|#https://github.com|https://github.com|g' ${BASE_DIR}/windows/flutter/generated_plugins.cmake || true
-              curl -f -L -o windows-flutter-engine-3.22.3.zip https://github.com/rustdesk/rustdesk-ext/releases/download/engine/windows-flutter-engine-3.22.3.zip
-              mkdir -p ${BASE_DIR}/bin
-              unzip -o windows-flutter-engine-3.22.3.zip -d ${BASE_DIR}/bin
-              rm windows-flutter-engine-3.22.3.zip
-              ;;
-            i686-pc-windows-msvc)
-              sed -i 's|#https://github.com|https://github.com|g' ${BASE_DIR}/windows/flutter/generated_plugins.cmake || true
-              curl -f -L -o windows-flutter-engine-3.22.3-x86.zip https://github.com/rustdesk/rustdesk-ext/releases/download/engine/windows-flutter-engine-3.22.3-x86.zip
-              mkdir -p ${BASE_DIR}/bin
-              unzip -o windows-flutter-engine-3.22.3-x86.zip -d ${BASE_DIR}/bin
-              rm windows-flutter-engine-3.22.3-x86.zip
-              ;;
-            x86_64-unknown-linux-gnu)
-              curl -f -L -o linux-flutter-engine-3.22.3.zip https://github.com/rustdesk/rustdesk-ext/releases/download/engine/linux-flutter-engine-3.22.3.zip
-              mkdir -p ${BASE_DIR}/bin
-              unzip -o linux-flutter-engine-3.22.3.zip -d ${BASE_DIR}/bin
-              rm linux-flutter-engine-3.22.3.zip
-              ;;
-          esac
+          # Pouze odkomentujeme stahování pluginů, pokud soubor existuje
+          for f in windows/flutter/generated_plugins.cmake flutter/windows/flutter/generated_plugins.cmake; do
+            if [ -f "$f" ]; then
+              sed -i 's|#https://github.com|https://github.com|g' "$f" || true
+            fi
+          done
+          echo "Using standard Flutter engine instead of missing custom artifacts."
 
       - name: Patch flutter
         shell: bash
         run: |
           cd $(dirname $(dirname $(which flutter)))
-          [[ "3.24.5" == "${{ env.FLUTTER_VERSION }}" ]] && git apply ${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enable_feedback.patch || true
-          [[ "3.22.3" == "${{ env.FLUTTER_VERSION }}" ]] && git apply ${{ github.workspace }}/.github/patches/flutter_3.22.2_dropdown_menu_enable_feedback.patch || true
+          [[ "3.24.5" == "${{ env.FLUTTER_VERSION }}" ]] && git apply ${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enable_feedback.patch 2>/dev/null || true
+          [[ "3.22.3" == "${{ env.FLUTTER_VERSION }}" ]] && git apply ${{ github.workspace }}/.github/patches/flutter_3.22.2_dropdown_menu_enable_feedback.patch 2>/dev/null || true
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@v1
@@ -190,13 +165,14 @@ jobs:
         run: |
           if [ "${{ matrix.job.os }}" = "windows-2022" ]; then
             python3 ./build.py --portable --hwcodec --flutter --vram --skip-portable-pack
-            # Kontrola kam se uložil výstup
+            # Flexibilní vyhledání výstupní složky
+            mkdir -p ./rustdesk
             if [ -d "./flutter/build/windows/x64/runner/Release" ]; then
-              mv ./flutter/build/windows/x64/runner/Release ./rustdesk
+              mv ./flutter/build/windows/x64/runner/Release/* ./rustdesk/ 2>/dev/null || true
             elif [ -d "./build/windows/x64/runner/Release" ]; then
-              mv ./build/windows/x64/runner/Release ./rustdesk
+              mv ./build/windows/x64/runner/Release/* ./rustdesk/ 2>/dev/null || true
             elif [ -d "./build/windows/runner/Release" ]; then
-              mv ./build/windows/runner/Release ./rustdesk
+              mv ./build/windows/runner/Release/* ./rustdesk/ 2>/dev/null || true
             fi
           else
             python3 ./build.py --flutter
@@ -214,11 +190,13 @@ jobs:
         if: matrix.job.os == 'windows-2022'
         run: |
           if (Test-Path .\rustdesk) {
-            curl -L -o usbmmidd_v2.zip https://github.com/rustdesk/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip
-            Expand-Archive usbmmidd_v2.zip -DestinationPath .
-            Remove-Item usbmmidd_v2\Win32 -Recurse -ErrorAction SilentlyContinue
-            Remove-Item -Path "usbmmidd_v2\deviceinstaller64.exe", "usbmmidd_v2\deviceinstaller.exe", "usbmmidd_v2\usbmmidd.bat" -ErrorAction SilentlyContinue
-            mv -Force .\usbmmidd_v2 .\rustdesk
+            try {
+              curl -L -o usbmmidd_v2.zip https://github.com/rustdesk/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip
+              Expand-Archive usbmmidd_v2.zip -DestinationPath .
+              Remove-Item usbmmidd_v2\Win32 -Recurse -ErrorAction SilentlyContinue
+              Remove-Item -Path "usbmmidd_v2\deviceinstaller64.exe", "usbmmidd_v2\deviceinstaller.exe", "usbmmidd_v2\usbmmidd.bat" -ErrorAction SilentlyContinue
+              mv -Force .\usbmmidd_v2\* .\rustdesk\ 2>$null
+            } catch { Write-Host "usbmmidd failed, skipping..." }
           }
         shell: pwsh
 
@@ -316,21 +294,3 @@ jobs:
         run: |
           echo "Signing files"
         shell: pwsh
-
-      - name: Publish Release
-        if: inputs.upload-artifact == true
-        shell: bash
-        run: |
-          echo "Publishing Release Assets"
-
-      - name: Build web
-        if: matrix.job.target == 'x86_64-unknown-linux-gnu' && inputs.upload-artifact == true
-        shell: bash
-        run: |
-          echo "Building Web Version"
-
-      - name: Publish web
-        if: matrix.job.target == 'x86_64-unknown-linux-gnu' && inputs.upload-artifact == true
-        shell: bash
-        run: |
-          echo "Publishing Web Version Assets"
