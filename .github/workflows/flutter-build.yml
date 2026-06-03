@@ -154,18 +154,17 @@ jobs:
       - name: Install vcpkg dependencies
         if: matrix.job.os != 'macos-13'
         run: |
-          if [ "${{ matrix.job.os }}" = "windows-2022" ]; then
-            $env:VCPKG_ROOT/vcpkg install --x-install-root="$env:VCPKG_ROOT/installed" --triplet x64-windows
-          else
-            $VCPKG_ROOT/vcpkg install --x-install-root="$VCPKG_ROOT/installed"
-          fi
+          if ("${{ matrix.job.os }}" -eq "windows-2022") {
+            & $env:VCPKG_ROOT/vcpkg install --x-install-root="$env:VCPKG_ROOT/installed" --triplet x64-windows
+          } else {
+            & $env:VCPKG_ROOT/vcpkg install --x-install-root="$env:VCPKG_ROOT/installed"
+          }
         shell: pwsh
 
       - name: Build rustdesk
         run: |
           if [ "${{ matrix.job.os }}" = "windows-2022" ]; then
             python3 ./build.py --portable --hwcodec --flutter --vram --skip-portable-pack
-            # Flexibilní vyhledání výstupní složky
             mkdir -p ./rustdesk
             if [ -d "./flutter/build/windows/x64/runner/Release" ]; then
               mv ./flutter/build/windows/x64/runner/Release/* ./rustdesk/ 2>/dev/null || true
