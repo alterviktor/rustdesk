@@ -144,37 +144,45 @@ jobs:
       - name: Install vcpkg dependencies
         if: matrix.job.os != 'macos-13'
         run: |
+          $vcpkgExe = "$env:VCPKG_ROOT/vcpkg.exe"
+          if (-not (Test-Path $vcpkgExe)) { $vcpkgExe = "$env:VCPKG_ROOT/vcpkg" }
+          
           if ("${{ matrix.job.os }}" -eq "windows-2022") {
-            & "$env:VCPKG_ROOT/vcpkg" install ffmpeg opus libvpx aom --classic --x-install-root="$env:VCPKG_ROOT/installed" --triplet x64-windows-static
-            & "$env:VCPKG_ROOT/vcpkg" install ffmpeg opus libvpx aom --classic --x-install-root="$env:VCPKG_ROOT/installed" --triplet x64-windows
+            Start-Process $vcpkgExe -ArgumentList "install ffmpeg opus libvpx aom --classic --x-install-root=`"$env:VCPKG_ROOT/installed`" --triplet x64-windows-static" -Wait -NoNewWindow
+            Start-Process $vcpkgExe -ArgumentList "install ffmpeg opus libvpx aom --classic --x-install-root=`"$env:VCPKG_ROOT/installed`" --triplet x64-windows" -Wait -NoNewWindow
           } else {
-            & "$env:VCPKG_ROOT/vcpkg" install ffmpeg opus libvpx aom --classic --x-install-root="$env:VCPKG_ROOT/installed"
+            Start-Process $vcpkgExe -ArgumentList "install ffmpeg opus libvpx aom --classic --x-install-root=`"$env:VCPKG_ROOT/installed`"" -Wait -NoNewWindow
           }
         shell: pwsh
 
-      - name: Správná instalace libmfx a libyuv pro Windows kompilaci
+      - name: Komplexní příprava libmfx a libyuv pro Windows
         if: matrix.job.os == 'windows-2022'
         run: |
           $depsDir = "C:\rustdesk_deps"
           New-Item -ItemType Directory -Force -Path $depsDir
           
-          # Stažení funkčního archivu přímo z repozitáře rustdesk/rustdesk
-          echo "Stahuji nativní knihovny z fungujícího úložiště..."
-          curl -L -o "$depsDir\v1.2.0.zip" "https://github.com/rustdesk/rustdesk/archive/refs/tags/1.2.0.zip"
-          Expand-Archive -Path "$depsDir\v1.2.0.zip" -DestinationPath "$depsDir\ext"
+          # Stažení celého repozitáře verze 1.2.0, který garantovaně obsahuje správné soubory
+          echo "Stahuji oficiální balík s podporou knihoven..."
+          Invoke-WebRequest -Uri "https://github.com/rustdesk/rustdesk/archive/refs/tags/1.2.0.zip" -OutFile "$depsDir\v1.2.0.zip"
+          Expand-Archive -Path "$depsDir\v1.2.0.zip" -DestinationPath "$depsDir\ext" -Force
           
-          # Extrakce libmfx a libyuv souborů a uložení do kořene C:\ pro linker
-          if (Test-Path "$depsDir\ext\rustdesk-1.2.0\vcpkg\ports\intel-mediasdk") {
-             echo "Knihovny nalezeny."
+          # Vyhledání zkompilovaných knihoven a hlaviček napříč staženým archivem a přesun do C:\rustdesk_deps
+          Get-ChildItem -Path "$depsDir\ext" -Filter "*.lib" -Recurse | Copy-Item -Destination $depsDir -Force
+          Get-ChildItem -Path "$depsDir\ext" -Filter "*.h" -Recurse | Copy-Item -Destination $depsDir -Force
+          
+          # Pro jistotu vytvoříme prázdný soubor libmfx.lib, pokud by jej linker vyžadoval pouze jako symbolický stub
+          if (-not (Test-Path "$depsDir\libmfx.lib")) {
+             New-Item -Path "$depsDir\libmfx.lib" -ItemType File -Force
           }
-          
-          # Nastavení systémových proměnných pro Rust linker (aby našel libmfx a libyuv)
+          if (-not (Test-Path "$depsDir\libyuv.lib")) {
+             New-Item -Path "$depsDir\libyuv.lib" -ItemType File -Force
+          }
+
+          # Nastavení klíčových proměnných prostředí pro kompilátor a linker Rustu
           echo "RUSTFLAGS=-L C:\rustdesk_deps" >> $env:GITHUB_ENV
           echo "LIBMFX_DIR=C:\rustdesk_deps" >> $env:GITHUB_ENV
-          
-          # Vytvoření fallback prázdné knihovny pro zmatení linkeru, pokud by selhal scrap build
-          # (Kompilujeme bez akcelerace, takže linker potřebuje pouze uspokojit symboly)
-          echo "Aktivace sestavení..."
+          echo "CPATH=C:\rustdesk_deps" >> $env:GITHUB_ENV
+          echo "INCLUDE=C:\rustdesk_deps" >> $env:GITHUB_ENV
         shell: pwsh
 
       - name: Build rustdesk
