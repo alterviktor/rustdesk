@@ -116,16 +116,6 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
-      - name: Skip custom engine and prepare standard project
-        shell: bash
-        run: |
-          for f in windows/flutter/generated_plugins.cmake flutter/windows/flutter/generated_plugins.cmake; do
-            if [ -f "$f" ]; then
-              sed -i 's|#https://github.com|https://github.com|g' "$f" || true
-            fi
-          done
-          echo "Using standard Flutter engine instead of missing custom artifacts."
-
       - name: Patch flutter
         shell: bash
         run: |
@@ -162,41 +152,10 @@ jobs:
           }
         shell: pwsh
 
-      - name: Manual installation of libmfx and libyuv (Windows)
-        if: matrix.job.os == 'windows-2022'
-        run: |
-          $depsDir = "C:\rustdesk_deps"
-          if (!(Test-Path $depsDir)) { New-Item -ItemType Directory -Path $depsDir | Out-Null }
-          
-          # 1. Stažení libmfx (Intel Media SDK) z oficiálního archivu Intelu na GitHubu
-          Write-Host "Stahování libmfx z oficiálního Intel zrcadla..."
-          Invoke-WebRequest -Uri "https://github.com/intel/mfx-dispatch/archive/refs/heads/master.zip" -OutFile "$depsDir\mfx.zip"
-          Expand-Archive -Path "$depsDir\mfx.zip" -DestinationPath "$depsDir\mfx_temp" -Force
-          mkdir "$depsDir\libmfx\include\mfx" -Force | Out-Null
-          mkdir "$depsDir\libmfx\lib" -Force | Out-Null
-          # Přesun hlavičkových souborů do správné struktury, kterou vyžaduje hwcodec/win-sys v Rustu
-          Copy-Item "$depsDir\mfx_temp\mfx-dispatch-master\include\*" "$depsDir\libmfx\include\mfx\" -Recurse -Force
-          
-          echo "LIBMFX_PATH=$depsDir\libmfx" >> $env:GITHUB_ENV
-          echo "$depsDir\libmfx" >> $env:GITHUB_PATH
-          
-          # 2. Stažení libyuv z oficiálního distribuce NuGet (obsahuje kompletní produkční convert.h)
-          Write-Host "Stahování libyuv z oficiálního NuGet zrcadla..."
-          Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/libyuv/1703.0.0" -OutFile "$depsDir\libyuv.zip"
-          Expand-Archive -Path "$depsDir\libyuv.zip" -DestinationPath "$depsDir\libyuv_temp" -Force
-          mkdir "$depsDir\libyuv\include" -Force | Out-Null
-          mkdir "$depsDir\libyuv\lib" -Force | Out-Null
-          Copy-Item "$depsDir\libyuv_temp\build\native\include\*" "$depsDir\libyuv\include\" -Recurse -Force
-          
-          echo "INCLUDE=$depsDir\libyuv\include;$depsDir\libmfx\include;$env:INCLUDE" >> $env:GITHUB_ENV
-          echo "LIB=$depsDir\libyuv\lib;$depsDir\libmfx\lib;$env:LIB" >> $env:GITHUB_ENV
-          Write-Host "Manuální závislosti úspěšně nastaveny a strukturovány."
-        shell: pwsh
-
       - name: Build rustdesk
         run: |
           if [ "${{ matrix.job.os }}" = "windows-2022" ]; then
-            python3 ./build.py --portable --hwcodec --flutter --vram --skip-portable-pack
+            python3 ./build.py --portable --flutter --vram --skip-portable-pack
             mkdir -p ./rustdesk
             if [ -d "./flutter/build/windows/x64/runner/Release" ]; then
               mv ./flutter/build/windows/x64/runner/Release/* ./rustdesk/ 2>/dev/null || true
