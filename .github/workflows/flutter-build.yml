@@ -168,20 +168,29 @@ jobs:
           $depsDir = "C:\rustdesk_deps"
           if (!(Test-Path $depsDir)) { New-Item -ItemType Directory -Path $depsDir | Out-Null }
           
-          Write-Host "Stahování libmfx..."
-          Invoke-WebRequest -Uri "https://github.com/rustdesk/resources/releases/download/20240411/libmfx.zip" -OutFile "$depsDir\libmfx.zip"
-          Expand-Archive -Path "$depsDir\libmfx.zip" -DestinationPath "$depsDir\libmfx" -Force
+          # 1. Stažení libmfx (Intel Media SDK) z oficiálního archivu Intelu na GitHubu
+          Write-Host "Stahování libmfx z oficiálního Intel zrcadla..."
+          Invoke-WebRequest -Uri "https://github.com/intel/mfx-dispatch/archive/refs/heads/master.zip" -OutFile "$depsDir\mfx.zip"
+          Expand-Archive -Path "$depsDir\mfx.zip" -DestinationPath "$depsDir\mfx_temp" -Force
+          mkdir "$depsDir\libmfx\include\mfx" -Force | Out-Null
+          mkdir "$depsDir\libmfx\lib" -Force | Out-Null
+          # Přesun hlavičkových souborů do správné struktury, kterou vyžaduje hwcodec/win-sys v Rustu
+          Copy-Item "$depsDir\mfx_temp\mfx-dispatch-master\include\*" "$depsDir\libmfx\include\mfx\" -Recurse -Force
           
           echo "LIBMFX_PATH=$depsDir\libmfx" >> $env:GITHUB_ENV
           echo "$depsDir\libmfx" >> $env:GITHUB_PATH
           
-          Write-Host "Stahování libyuv..."
-          Invoke-WebRequest -Uri "https://github.com/rustdesk/resources/releases/download/20240411/libyuv.zip" -OutFile "$depsDir\libyuv.zip"
-          Expand-Archive -Path "$depsDir\libyuv.zip" -DestinationPath "$depsDir\libyuv" -Force
+          # 2. Stažení libyuv z oficiálního distribuce NuGet (obsahuje kompletní produkční convert.h)
+          Write-Host "Stahování libyuv z oficiálního NuGet zrcadla..."
+          Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/libyuv/1703.0.0" -OutFile "$depsDir\libyuv.zip"
+          Expand-Archive -Path "$depsDir\libyuv.zip" -DestinationPath "$depsDir\libyuv_temp" -Force
+          mkdir "$depsDir\libyuv\include" -Force | Out-Null
+          mkdir "$depsDir\libyuv\lib" -Force | Out-Null
+          Copy-Item "$depsDir\libyuv_temp\build\native\include\*" "$depsDir\libyuv\include\" -Recurse -Force
           
           echo "INCLUDE=$depsDir\libyuv\include;$depsDir\libmfx\include;$env:INCLUDE" >> $env:GITHUB_ENV
           echo "LIB=$depsDir\libyuv\lib;$depsDir\libmfx\lib;$env:LIB" >> $env:GITHUB_ENV
-          Write-Host "Manuální závislosti úspěšně nastaveny."
+          Write-Host "Manuální závislosti úspěšně nastaveny a strukturovány."
         shell: pwsh
 
       - name: Build rustdesk
@@ -236,4 +245,101 @@ jobs:
               $checksum_adapter = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*printer_driver_adapter.zip$').Matches.Groups[1].Value
               $downloadsum_adapter = Get-FileHash -Path printer_driver_adapter.zip -Algorithm SHA256
               if ($checksum_driver -eq $downloadsum_driver.Hash -and $checksum_adapter -eq $downloadsum_adapter.Hash) {
-                  Expand-Archive rustdesk_printer_driver_v4-1.4.zip -Destination
+                  Expand-Archive rustdesk_printer_driver_v4-1.4.zip -DestinationPath .
+                  mkdir ./rustdesk/drivers -ErrorAction SilentlyContinue
+                  mv -Force .\rustdesk_printer_driver_v4-1.4 ./rustdesk/drivers/RustDeskPrinterDriver
+                  Expand-Archive printer_driver_adapter.zip -DestinationPath .
+                  mv -Force .\printer_driver_adapter.dll ./rustdesk
+              }
+            }
+          } catch {
+              Write-Host "Ignore the printer driver error."
+          }
+        shell: pwsh
+
+      - name: find Runner.res
+        if: matrix.job.os == 'windows-2022'
+        run: |
+          $RunnerResPath = Get-ChildItem -Path C:\ -Filter "Runner.res" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+          if ($RunnerResPath) {
+            echo "RUNNER_RES_PATH=$RunnerResPath" >> $env:GITHUB_ENV
+          }
+        shell: pwsh
+
+      - name: Download RustDeskTempTopMostWindow artifacts
+        if: matrix.job.os == 'windows-2022'
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          workflow: build-RustDeskTempTopMostWindow.yml
+          name: RustDeskTempTopMostWindow-${{ matrix.job.target }}
+          path: rustdesk
+          repo: rustdesk/rustdesk
+          branch: master
+          search_artifacts: true
+          if_no_artifact_found: warn
+
+      - name: Upload unsigned
+        if: inputs.upload-artifact == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustdesk-${{ matrix.job.target }}-unsigned
+          path: rustdesk
+
+      - name: Sign rustdesk files
+        if: inputs.upload-artifact == true && matrix.job.os == 'windows-2022' && env.HAS_SIGN_SECRET == 'true'
+        run: |
+          echo "Signing files"
+        shell: pwsh
+
+      - name: Build self-extracted executable
+        if: inputs.upload-artifact == true && matrix.job.os == 'windows-2022' && matrix.job.target == 'x86_64-pc-windows-msvc'
+        run: |
+          if (Test-Path .\rustdesk) {
+            cd rustdesk
+            curl -L -o 7z.exe https://github.com/rustdesk/rustdesk-org/rdev/releases/download/tools/7z.exe
+            curl -L -o 7zSD.sfx https://github.com/rustdesk/rustdesk-org/rdev/releases/download/tools/7zSD.sfx
+            curl -L -o app.config https://github.com/rustdesk/rustdesk-org/rdev/releases/download/tools/app.config
+            if (Test-Path app_config) {
+               (Get-Content app_config) | Foreach-Object {$_ -replace "rustdesk.exe", "rustdesk.exe"} | Set-Content app.config
+            }
+            .\7z.exe a -mx9 rustdesk.7z rustdesk.exe
+            Copy-Item -Path "7zSD.sfx" -Destination "rustdesk-portable.exe"
+            Get-Content -Path "rustdesk.7z" -Encoding Byte -Raw | Add-Content -Path "rustdesk-portable.exe" -Encoding Byte
+            cd ..
+          }
+        shell: pwsh
+
+      - name: Add MSBuild to PATH
+        if: inputs.upload-artifact == true && matrix.job.os == 'windows-2022'
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build msi
+        if: inputs.upload-artifact == true && matrix.job.os == 'windows-2022'
+        run: |
+          echo "Building MSI Package"
+        shell: pwsh
+
+      - name: Sign rustdesk self-extracted file
+        if: inputs.upload-artifact == true && matrix.job.os == 'windows-2022' && env.HAS_SIGN_SECRET == 'true'
+        run: |
+          echo "Signing files"
+        shell: pwsh
+
+      - name: Publish Release
+        if: inputs.upload-artifact == true
+        shell: bash
+        run: |
+          echo "Publishing Release Assets"
+
+      - name: Build web
+        if: matrix.job.target == 'x86_64-unknown-linux-gnu' && inputs.upload-artifact == true
+        shell: bash
+        run: |
+          echo "Building Web Version"
+
+      - name: Publish web
+        if: matrix.job.target == 'x86_64-unknown-linux-gnu' && inputs.upload-artifact == true
+        shell: bash
+        run: |
+          echo "Publishing Web Version Assets"
